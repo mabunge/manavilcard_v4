@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#111111" />
+  <meta name="description" content="만화마을 주민등록증 메이커" />
+  <title>만화마을 주민등록소</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="hero">
+      <div class="eyebrow">MANGA VILLAGE</div>
+      <h1>만화마을 주민등록소</h1>
+      <p>취향을 등록하고 나만의 주민등록증을 발급받아 보세요.</p>
+    </header>
+
+    <section class="panel">
+      <form id="residentForm" novalidate>
+        <div class="section-title">
+          <span>01</span>
+          <div>
+            <h2>기본 정보</h2>
+            <p>카드에 표시될 정보를 입력해 주세요.</p>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>이름 *</span>
+          <input id="name" name="name" type="text" maxlength="12" placeholder="예: 김이삭" required />
+        </label>
+
+        <label class="field">
+          <span>닉네임</span>
+          <input id="nickname" name="nickname" type="text" maxlength="16" placeholder="예: Isaac" />
+        </label>
+
+        <div class="field-grid">
+          <label class="field">
+            <span>가입연도</span>
+            <input id="joinYear" name="joinYear" type="number" inputmode="numeric" min="2000" max="2099" value="2026" />
+          </label>
+
+          <label class="field">
+            <span>주민번호</span>
+            <input id="residentNumber" name="residentNumber" type="number" inputmode="numeric" min="1" max="9999" placeholder="예: 14" />
+          </label>
+        </div>
+
+        <div class="section-title">
+          <span>02</span>
+          <div>
+            <h2>프로필 사진</h2>
+            <p>사진은 서버에 업로드되지 않고 이 기기에서만 처리됩니다.</p>
+          </div>
+        </div>
+
+        <label class="photo-picker">
+          <input id="photoInput" type="file" accept="image/*" />
+          <div id="photoPreview" class="photo-preview">
+            <span>사진 선택</span>
+          </div>
+        </label>
+
+        <div class="section-title">
+          <span>03</span>
+          <div>
+            <h2>취향 등록</h2>
+            <p>주력 장르는 최대 5개까지 선택할 수 있어요.</p>
+          </div>
+        </div>
+
+        <div class="field">
+          <span>주력 장르 *</span>
+          <div id="genreList" class="chip-list" role="group" aria-label="주력 장르 선택">
+            <button type="button" class="chip" data-value="애니">애니</button>
+            <button type="button" class="chip" data-value="만화">만화</button>
+            <button type="button" class="chip" data-value="게임">게임</button>
+            <button type="button" class="chip" data-value="버튜버">버튜버</button>
+            <button type="button" class="chip" data-value="라노벨">라노벨</button>
+            <button type="button" class="chip" data-value="보컬로이드">보컬로이드</button>
+            <button type="button" class="chip" data-value="코스프레">코스프레</button>
+            <button type="button" class="chip" data-value="굿즈">굿즈</button>
+            <button type="button" class="chip" data-value="그림">그림</button>
+            <button type="button" class="chip" data-value="음악">음악</button>
+          </div>
+          <p class="helper"><span id="genreCount">0</span>/5 선택</p>
+        </div>
+
+        <label class="field">
+          <span>최애 작품</span>
+          <input id="favoriteWork" type="text" maxlength="24" placeholder="예: 블루 아카이브" />
+        </label>
+
+        <label class="field">
+          <span>최애 캐릭터</span>
+          <input id="favoriteCharacter" type="text" maxlength="24" placeholder="예: 하야세 유우카" />
+        </label>
+
+        <label class="field">
+          <span>한줄 소개</span>
+          <textarea id="intro" rows="3" maxlength="42" placeholder="예: 최애 얘기라면 세 시간 가능합니다."></textarea>
+          <p class="helper"><span id="introCount">0</span>/42</p>
+        </label>
+
+        <div class="section-title">
+          <span>04</span>
+          <div>
+            <h2>연락처</h2>
+            <p>원하지 않으면 비워도 됩니다.</p>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>Discord / SNS</span>
+          <input id="contact" type="text" maxlength="30" placeholder="예: @nickname" />
+        </label>
+
+        <label class="toggle-row">
+          <div>
+            <strong>카드에 연락처 표시</strong>
+            <span>공유용 이미지에 연락처를 노출합니다.</span>
+          </div>
+          <input id="showContact" type="checkbox" checked />
+        </label>
+
+        <button class="primary-btn" type="submit">주민등록증 발급하기</button>
+      </form>
+    </section>
+
+    <section id="resultSection" class="panel result-panel" hidden>
+      <div class="section-title">
+        <span>05</span>
+        <div>
+          <h2>발급 완료</h2>
+          <p>이미지를 길게 눌러 저장하거나 아래 버튼으로 다운로드하세요.</p>
+        </div>
+      </div>
+
+      <div class="canvas-wrap">
+        <canvas id="cardCanvas" width="1080" height="680" aria-label="생성된 만화마을 주민등록증"></canvas>
+      </div>
+
+      <div class="result-actions">
+        <button id="downloadBtn" class="primary-btn" type="button">PNG 저장</button>
+        <button id="rerollStampBtn" class="secondary-btn" type="button">도장 다시 뽑기</button>
+      </div>
+    </section>
+
+
+    <div id="cropModal" class="crop-modal" hidden>
+      <div class="crop-sheet" role="dialog" aria-modal="true" aria-labelledby="cropTitle">
+        <div class="crop-head">
+          <div>
+            <p class="crop-kicker">PROFILE PHOTO</p>
+            <h2 id="cropTitle">사진 자르기</h2>
+          </div>
+          <button id="cropCloseBtn" class="icon-btn" type="button" aria-label="사진 자르기 닫기">×</button>
+        </div>
+
+        <p class="crop-guide">사진을 드래그해서 위치를 맞추고, 아래 슬라이더로 크기를 조절하세요.</p>
+
+        <div class="crop-stage-wrap">
+          <canvas id="cropCanvas" width="600" height="800" aria-label="프로필 사진 자르기 미리보기"></canvas>
+        </div>
+
+        <label class="zoom-control">
+          <span>확대</span>
+          <input id="cropZoom" type="range" min="1" max="3" step="0.01" value="1" />
+        </label>
+
+        <div class="crop-actions">
+          <button id="cropCancelBtn" class="secondary-btn" type="button">취소</button>
+          <button id="cropApplyBtn" class="primary-btn" type="button">이대로 사용</button>
+        </div>
+      </div>
+    </div>
+
+
+    <footer>
+      <p>만화마을 주민등록증 메이커 · 모든 입력 정보는 브라우저에서만 처리됩니다.</p>
+    </footer>
+  </main>
+
+  <script src="./js/app.js" defer></script>
+</body>
+</html>
