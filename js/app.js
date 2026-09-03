@@ -405,7 +405,7 @@ function drawBackground() {
   ctx.rotate(-0.2);
   ctx.fillStyle = "rgba(0,0,0,0.035)";
   ctx.font = "900 90px sans-serif";
-  ctx.fillText("MANGA", -150, 0);
+  ctx.fillText("MANA", -150, 0);
   ctx.fillText("VILLAGE", -195, 90);
   ctx.restore();
 }
@@ -417,7 +417,7 @@ function drawHeader() {
 
   ctx.font = "800 17px sans-serif";
   ctx.letterSpacing = "3px";
-  ctx.fillText("MANGA VILLAGE RESIDENT CARD", 68, 122);
+  ctx.fillText("MANA VILLAGE RESIDENT CARD", 68, 122);
   ctx.letterSpacing = "0px";
 
   ctx.fillRect(68, 145, 944, 3);
@@ -593,7 +593,7 @@ function drawFooter() {
   ctx.fillText("만화마을 주민센터", 70, 648);
 
   ctx.textAlign = "right";
-  ctx.fillText("MANGA VILLAGE · 2026", 1008, 648);
+  ctx.fillText("MANA VILLAGE · 2026", 1008, 648);
   ctx.textAlign = "start";
 }
 
