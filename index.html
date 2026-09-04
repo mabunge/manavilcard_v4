@@ -10,7 +10,6 @@
   <meta name="description" content="만화마을 주민등록증 메이커" />
   <title>만화마을 주민등록소</title>
   <script>
-    // GitHub Pages의 이전 CSS 캐시를 재사용하지 않도록 매 접속마다 새 URL로 요청합니다.
     const styleLink = document.createElement("link");
     styleLink.rel = "stylesheet";
     styleLink.href = `./styles.css?v=${Date.now()}`;
@@ -20,7 +19,7 @@
 <body>
   <main class="app-shell">
     <header class="hero">
-      <div class="eyebrow">MANA VILLAGE</div>
+      <div class="eyebrow">MANGA VILLAGE</div>
       <h1>만화마을 주민등록소</h1>
       <p>취향을 등록하고 나만의 주민등록증을 발급받아 보세요.</p>
     </header>
@@ -47,13 +46,13 @@
 
         <div class="field-grid">
           <label class="field">
-            <span>동아리 가입연도</span>
+            <span>가입연도</span>
             <input id="joinYear" name="joinYear" type="number" inputmode="numeric" min="2000" max="2099" value="2026" />
           </label>
 
           <label class="field">
-            <span>학번</span>
-            <input id="residentNumber" name="residentNumber" type="number" inputmode="numeric" min="1" max="9999" placeholder="예: 22" />
+            <span>주민번호</span>
+            <input id="residentNumber" name="residentNumber" type="number" inputmode="numeric" min="1" max="9999" placeholder="예: 14" />
           </label>
         </div>
 
@@ -134,13 +133,39 @@
           <input id="showContact" type="checkbox" checked />
         </label>
 
+
+        <div class="section-title">
+          <span>05</span>
+          <div>
+            <h2>도장 설정</h2>
+            <p>랜덤으로 뽑거나 원하는 문구를 직접 입력할 수 있어요.</p>
+          </div>
+        </div>
+
+        <div class="stamp-mode-toggle" role="group" aria-label="도장 설정 방식">
+          <button id="stampRandomModeBtn" class="stamp-mode-btn is-active" type="button">랜덤 가챠</button>
+          <button id="stampCustomModeBtn" class="stamp-mode-btn" type="button">직접 입력</button>
+        </div>
+
+        <div id="stampRandomPanel" class="stamp-config-panel">
+          <p class="helper-left">발급할 때마다 랜덤 도장이 하나 선택됩니다.</p>
+        </div>
+
+        <div id="stampCustomPanel" class="stamp-config-panel" hidden>
+          <label class="field">
+            <span>커스텀 도장 문구</span>
+            <input id="customStampText" type="text" maxlength="8" placeholder="예: 최애주의" autocomplete="off" />
+            <p class="helper"><span id="customStampCount">0</span>/8</p>
+          </label>
+        </div>
+
         <button class="primary-btn" type="submit">주민등록증 발급하기</button>
       </form>
     </section>
 
     <section id="resultSection" class="panel result-panel" hidden>
       <div class="section-title">
-        <span>05</span>
+        <span>06</span>
         <div>
           <h2>발급 완료</h2>
           <p>아래 버튼으로 PNG를 저장하세요. 갤럭시에서 저장이 막히면 생성된 이미지를 길게 눌러 저장할 수도 있습니다.</p>
@@ -193,7 +218,6 @@
   </main>
 
   <script>
-    // GitHub Pages의 이전 JS 캐시를 재사용하지 않도록 매 접속마다 새 URL로 요청합니다.
     const appScript = document.createElement("script");
     appScript.src = `./js/app.js?v=${Date.now()}`;
     appScript.defer = true;
