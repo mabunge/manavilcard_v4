@@ -1,5 +1,4 @@
 // 이 프로젝트는 오프라인 캐시를 사용하지 않습니다.
-// 과거 버전이나 브라우저 확장 등에 의해 Cache Storage가 만들어졌다면 제거합니다.
 if ("caches" in window) {
   caches.keys()
     .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
@@ -20,9 +19,39 @@ const ctx = canvas.getContext("2d");
 const downloadBtn = document.getElementById("downloadBtn");
 const rerollStampBtn = document.getElementById("rerollStampBtn");
 
+// Cropper
+const cropModal = document.getElementById("cropModal");
+const cropCanvas = document.getElementById("cropCanvas");
+const cropCtx = cropCanvas.getContext("2d");
+const cropZoom = document.getElementById("cropZoom");
+const cropApplyBtn = document.getElementById("cropApplyBtn");
+const cropCancelBtn = document.getElementById("cropCancelBtn");
+const cropCloseBtn = document.getElementById("cropCloseBtn");
+
+const stampRandomModeBtn = document.getElementById("stampRandomModeBtn");
+const stampCustomModeBtn = document.getElementById("stampCustomModeBtn");
+const stampRandomPanel = document.getElementById("stampRandomPanel");
+const stampCustomPanel = document.getElementById("stampCustomPanel");
+const customStampText = document.getElementById("customStampText");
+const customStampCount = document.getElementById("customStampCount");
+
+
 const selectedGenres = new Set();
+
 let profileImage = null;
 let currentStamp = "";
+let stampMode = "random";
+
+// Original image currently being edited in the cropper
+let cropSourceImage = null;
+let cropBaseScale = 1;
+let cropScale = 1;
+let cropOffsetX = 0;
+let cropOffsetY = 0;
+let cropDragging = false;
+let cropPointerId = null;
+let cropLastX = 0;
+let cropLastY = 0;
 
 const stamps = [
   "정상 주민",
@@ -51,6 +80,7 @@ genreList.addEventListener("click", (event) => {
       alert("주력 장르는 최대 5개까지 선택할 수 있어요.");
       return;
     }
+
     selectedGenres.add(value);
     button.classList.add("is-selected");
   }
@@ -80,16 +110,117 @@ photoInput.addEventListener("change", async () => {
 
   try {
     const dataUrl = await fileToDataURL(file);
-    profileImage = await loadImage(dataUrl);
-
-    photoPreview.innerHTML = "";
-    const img = document.createElement("img");
-    img.src = dataUrl;
-    img.alt = "선택된 프로필 사진";
-    photoPreview.appendChild(img);
+    cropSourceImage = await loadImage(dataUrl);
+    openCropper(cropSourceImage);
   } catch {
     alert("사진을 불러오지 못했습니다.");
   }
+});
+
+cropZoom.addEventListener("input", () => {
+  if (!cropSourceImage) return;
+
+  const oldScale = cropScale;
+  cropScale = cropBaseScale * Number(cropZoom.value);
+
+  // Keep the visible center stable while zooming.
+  const cx = cropCanvas.width / 2;
+  const cy = cropCanvas.height / 2;
+  const ratio = cropScale / oldScale;
+
+  cropOffsetX = cx - (cx - cropOffsetX) * ratio;
+  cropOffsetY = cy - (cy - cropOffsetY) * ratio;
+
+  clampCropOffset();
+  renderCropper();
+});
+
+cropCanvas.addEventListener("pointerdown", (event) => {
+  if (!cropSourceImage) return;
+
+  cropDragging = true;
+  cropPointerId = event.pointerId;
+  cropLastX = event.clientX;
+  cropLastY = event.clientY;
+  cropCanvas.classList.add("is-dragging");
+  cropCanvas.setPointerCapture(event.pointerId);
+});
+
+cropCanvas.addEventListener("pointermove", (event) => {
+  if (!cropDragging || event.pointerId !== cropPointerId) return;
+
+  const rect = cropCanvas.getBoundingClientRect();
+  const canvasPerCssX = cropCanvas.width / rect.width;
+  const canvasPerCssY = cropCanvas.height / rect.height;
+
+  cropOffsetX += (event.clientX - cropLastX) * canvasPerCssX;
+  cropOffsetY += (event.clientY - cropLastY) * canvasPerCssY;
+
+  cropLastX = event.clientX;
+  cropLastY = event.clientY;
+
+  clampCropOffset();
+  renderCropper();
+});
+
+cropCanvas.addEventListener("pointerup", stopCropDrag);
+cropCanvas.addEventListener("pointercancel", stopCropDrag);
+
+cropApplyBtn.addEventListener("click", async () => {
+  if (!cropSourceImage) return;
+
+  // Save only the final 3:4 crop as the profile image.
+  const output = document.createElement("canvas");
+  output.width = 600;
+  output.height = 800;
+  const outputCtx = output.getContext("2d");
+
+  outputCtx.fillStyle = "#e6e0d5";
+  outputCtx.fillRect(0, 0, output.width, output.height);
+  drawCropImage(outputCtx);
+
+  const croppedDataUrl = output.toDataURL("image/jpeg", 0.92);
+  profileImage = await loadImage(croppedDataUrl);
+
+  photoPreview.innerHTML = "";
+  const img = document.createElement("img");
+  img.src = croppedDataUrl;
+  img.alt = "자른 프로필 사진";
+  photoPreview.appendChild(img);
+  photoPreview.classList.add("has-image");
+
+  closeCropper();
+});
+
+cropCancelBtn.addEventListener("click", cancelCropper);
+cropCloseBtn.addEventListener("click", cancelCropper);
+
+cropModal.addEventListener("click", (event) => {
+  if (event.target === cropModal) cancelCropper();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !cropModal.hidden) {
+    cancelCropper();
+  }
+});
+
+
+stampRandomModeBtn.addEventListener("click", () => {
+  setStampMode("random");
+});
+
+stampCustomModeBtn.addEventListener("click", () => {
+  setStampMode("custom");
+  customStampText.focus();
+});
+
+customStampText.addEventListener("input", () => {
+  const value = [...customStampText.value].slice(0, 8).join("");
+  if (customStampText.value !== value) {
+    customStampText.value = value;
+  }
+  customStampCount.textContent = [...customStampText.value].length;
 });
 
 form.addEventListener("submit", (event) => {
@@ -109,14 +240,34 @@ form.addEventListener("submit", (event) => {
     return;
   }
 
-  currentStamp = randomStamp();
+  if (stampMode === "custom") {
+    const customText = customStampText.value.trim();
+    if (!customText) {
+      alert("커스텀 도장 문구를 입력해 주세요.");
+      customStampText.focus();
+      return;
+    }
+    currentStamp = [...customText].slice(0, 8).join("");
+  } else {
+    currentStamp = randomStamp();
+  }
+
   drawCard();
   resultSection.hidden = false;
   resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
 rerollStampBtn.addEventListener("click", () => {
-  currentStamp = randomStamp(currentStamp);
+  if (stampMode === "custom") {
+    const customText = customStampText.value.trim();
+    if (!customText) {
+      alert("커스텀 도장 문구를 입력해 주세요.");
+      return;
+    }
+    currentStamp = [...customText].slice(0, 8).join("");
+  } else {
+    currentStamp = randomStamp(currentStamp);
+  }
   drawCard();
 });
 
@@ -126,27 +277,135 @@ downloadBtn.addEventListener("click", () => {
   const fileName = `만화마을_주민등록증_${safeName}.png`;
 
   try {
-    // Android / Samsung Internet 호환성을 위해 Blob URL 대신 data URL 사용
     const dataUrl = canvas.toDataURL("image/png");
-
     const a = document.createElement("a");
     a.href = dataUrl;
     a.download = fileName;
     a.rel = "noopener";
     a.style.display = "none";
-
     document.body.appendChild(a);
     a.click();
-
-    // 일부 모바일 브라우저는 클릭 직후 요소를 제거하면 저장 처리가 취소될 수 있음
-    window.setTimeout(() => {
-      a.remove();
-    }, 1500);
+    window.setTimeout(() => a.remove(), 1500);
   } catch (error) {
     console.error("이미지 저장 실패:", error);
     openImageFallback();
   }
 });
+
+function openCropper(image) {
+  const canvasW = cropCanvas.width;
+  const canvasH = cropCanvas.height;
+
+  // Minimum scale always covers the whole 3:4 crop frame.
+  cropBaseScale = Math.max(canvasW / image.width, canvasH / image.height);
+  cropScale = cropBaseScale;
+  cropZoom.value = "1";
+
+  const drawW = image.width * cropScale;
+  const drawH = image.height * cropScale;
+
+  cropOffsetX = (canvasW - drawW) / 2;
+  cropOffsetY = (canvasH - drawH) / 2;
+
+  clampCropOffset();
+  renderCropper();
+
+  cropModal.hidden = false;
+  document.body.classList.add("is-modal-open");
+}
+
+function closeCropper() {
+  cropModal.hidden = true;
+  document.body.classList.remove("is-modal-open");
+  cropSourceImage = null;
+  cropDragging = false;
+  cropPointerId = null;
+  cropCanvas.classList.remove("is-dragging");
+  photoInput.value = "";
+}
+
+function cancelCropper() {
+  closeCropper();
+}
+
+function stopCropDrag(event) {
+  if (event.pointerId !== cropPointerId) return;
+
+  cropDragging = false;
+  cropPointerId = null;
+  cropCanvas.classList.remove("is-dragging");
+
+  try {
+    cropCanvas.releasePointerCapture(event.pointerId);
+  } catch (_) {
+    // Some mobile browsers release pointer capture automatically.
+  }
+}
+
+function clampCropOffset() {
+  if (!cropSourceImage) return;
+
+  const drawW = cropSourceImage.width * cropScale;
+  const drawH = cropSourceImage.height * cropScale;
+
+  // The image must cover the entire crop canvas.
+  const minX = cropCanvas.width - drawW;
+  const minY = cropCanvas.height - drawH;
+
+  cropOffsetX = Math.min(0, Math.max(minX, cropOffsetX));
+  cropOffsetY = Math.min(0, Math.max(minY, cropOffsetY));
+}
+
+function renderCropper() {
+  cropCtx.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+
+  cropCtx.fillStyle = "#111";
+  cropCtx.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
+
+  if (!cropSourceImage) return;
+
+  drawCropImage(cropCtx);
+
+  // Simple composition guides.
+  cropCtx.save();
+  cropCtx.strokeStyle = "rgba(255,255,255,.44)";
+  cropCtx.lineWidth = 2;
+
+  for (const ratio of [1 / 3, 2 / 3]) {
+    cropCtx.beginPath();
+    cropCtx.moveTo(cropCanvas.width * ratio, 0);
+    cropCtx.lineTo(cropCanvas.width * ratio, cropCanvas.height);
+    cropCtx.stroke();
+
+    cropCtx.beginPath();
+    cropCtx.moveTo(0, cropCanvas.height * ratio);
+    cropCtx.lineTo(cropCanvas.width, cropCanvas.height * ratio);
+    cropCtx.stroke();
+  }
+
+  cropCtx.restore();
+
+  cropCtx.save();
+  cropCtx.strokeStyle = "rgba(255,255,255,.9)";
+  cropCtx.lineWidth = 8;
+  cropCtx.strokeRect(4, 4, cropCanvas.width - 8, cropCanvas.height - 8);
+  cropCtx.restore();
+}
+
+function drawCropImage(context) {
+  if (!cropSourceImage) return;
+
+  const drawW = cropSourceImage.width * cropScale;
+  const drawH = cropSourceImage.height * cropScale;
+
+  context.drawImage(
+    cropSourceImage,
+    cropOffsetX,
+    cropOffsetY,
+    drawW,
+    drawH
+  );
+}
 
 function drawCard() {
   const data = collectFormData();
@@ -203,7 +462,7 @@ function drawBackground() {
   ctx.rotate(-0.2);
   ctx.fillStyle = "rgba(0,0,0,0.035)";
   ctx.font = "900 90px sans-serif";
-  ctx.fillText("MANA", -150, 0);
+  ctx.fillText("MANGA", -150, 0);
   ctx.fillText("VILLAGE", -195, 90);
   ctx.restore();
 }
@@ -215,7 +474,7 @@ function drawHeader() {
 
   ctx.font = "800 17px sans-serif";
   ctx.letterSpacing = "3px";
-  ctx.fillText("MANA VILLAGE RESIDENT CARD", 68, 122);
+  ctx.fillText("MANGA VILLAGE RESIDENT CARD", 68, 122);
   ctx.letterSpacing = "0px";
 
   ctx.fillRect(68, 145, 944, 3);
@@ -232,6 +491,7 @@ function drawPhoto(image) {
   ctx.clip();
 
   if (image) {
+    // The selected profile image is already cropped to 3:4.
     drawImageCover(ctx, image, x, y, w, h);
   } else {
     ctx.fillStyle = "#e6e0d5";
@@ -379,7 +639,6 @@ function drawStamp(text) {
   ctx.fillStyle = "#171717";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-
   drawStampText(ctx, text);
 
   ctx.restore();
@@ -387,66 +646,58 @@ function drawStamp(text) {
 
 function drawStampText(context, text) {
   const maxWidth = 104;
-  const words = text.trim().split(/\s+/).filter(Boolean);
+  const cleanText = [...text.trim()].slice(0, 8).join("");
 
-  // 먼저 한 줄로 들어가는지 확인하고, 들어가면 글자 크기만 조절합니다.
-  let singleLineSize = 19;
-  while (singleLineSize >= 13) {
-    context.font = `900 ${singleLineSize}px sans-serif`;
-    if (context.measureText(text).width <= maxWidth) {
-      context.fillText(text, 0, 1);
+  let fontSize = 19;
+  while (fontSize >= 13) {
+    context.font = `900 ${fontSize}px sans-serif`;
+    if (context.measureText(cleanText).width <= maxWidth) {
+      context.fillText(cleanText, 0, 1);
       return;
     }
-    singleLineSize -= 1;
+    fontSize -= 1;
   }
 
-  // 두 줄이 필요한 경우, 단어 중간이 아니라 공백 기준으로 가장 균형 좋은 지점을 찾습니다.
-  let bestLines = null;
-  let bestScore = Infinity;
+  const words = cleanText.split(/\s+/).filter(Boolean);
+  let lines;
 
-  for (let i = 1; i < words.length; i += 1) {
-    const line1 = words.slice(0, i).join(" ");
-    const line2 = words.slice(i).join(" ");
+  if (words.length >= 2) {
+    let bestScore = Infinity;
+    lines = [words[0], words.slice(1).join(" ")];
 
-    context.font = "900 17px sans-serif";
-    const width1 = context.measureText(line1).width;
-    const width2 = context.measureText(line2).width;
-    const overflow = Math.max(0, width1 - maxWidth) + Math.max(0, width2 - maxWidth);
-    const balance = Math.abs(width1 - width2);
-    const score = overflow * 10 + balance;
+    for (let i = 1; i < words.length; i += 1) {
+      const line1 = words.slice(0, i).join(" ");
+      const line2 = words.slice(i).join(" ");
+      context.font = "900 17px sans-serif";
+      const score = Math.abs(context.measureText(line1).width - context.measureText(line2).width);
 
-    if (score < bestScore) {
-      bestScore = score;
-      bestLines = [line1, line2];
+      if (score < bestScore) {
+        bestScore = score;
+        lines = [line1, line2];
+      }
     }
+  } else {
+    const chars = [...cleanText];
+    const splitAt = Math.ceil(chars.length / 2);
+    lines = [chars.slice(0, splitAt).join(""), chars.slice(splitAt).join("")];
   }
 
-  // 공백이 없는 매우 긴 문구에 대한 예외 처리
-  if (!bestLines) {
-    const chars = [...text];
-    const half = Math.ceil(chars.length / 2);
-    bestLines = [
-      chars.slice(0, half).join(""),
-      chars.slice(half).join("")
-    ];
-  }
-
-  // 두 줄 모두 원 안에 들어갈 때까지 글자 크기를 함께 줄입니다.
-  let fontSize = 17;
-  while (fontSize >= 12) {
+  fontSize = 17;
+  while (fontSize >= 11) {
     context.font = `900 ${fontSize}px sans-serif`;
-
-    if (bestLines.every((line) => context.measureText(line).width <= maxWidth)) {
+    if (lines.every((line) => context.measureText(line).width <= maxWidth)) {
       break;
     }
-
     fontSize -= 1;
   }
 
   const lineHeight = fontSize + 5;
   context.font = `900 ${fontSize}px sans-serif`;
-  context.fillText(bestLines[0], 0, -lineHeight / 2);
-  context.fillText(bestLines[1], 0, lineHeight / 2);
+  context.fillText(lines[0], 0, -lineHeight / 2);
+
+  if (lines[1]) {
+    context.fillText(lines[1], 0, lineHeight / 2);
+  }
 }
 
 function drawFooter() {
@@ -455,8 +706,19 @@ function drawFooter() {
   ctx.fillText("만화마을 주민센터", 70, 648);
 
   ctx.textAlign = "right";
-  ctx.fillText("MANA VILLAGE · 2026", 1008, 648);
+  ctx.fillText("MANGA VILLAGE · 2026", 1008, 648);
   ctx.textAlign = "start";
+}
+
+function setStampMode(mode) {
+  stampMode = mode;
+  const isRandom = mode === "random";
+
+  stampRandomModeBtn.classList.toggle("is-active", isRandom);
+  stampCustomModeBtn.classList.toggle("is-active", !isRandom);
+  stampRandomPanel.hidden = !isRandom;
+  stampCustomPanel.hidden = isRandom;
+  rerollStampBtn.textContent = isRandom ? "도장 다시 뽑기" : "커스텀 도장 적용";
 }
 
 function openImageFallback() {
@@ -465,9 +727,7 @@ function openImageFallback() {
     const popup = window.open("", "_blank");
 
     if (!popup) {
-      alert(
-        "이미지 저장이 차단되었습니다. 브라우저의 팝업/다운로드 허용 설정을 확인한 뒤 다시 시도해 주세요."
-      );
+      alert("이미지 저장이 차단되었습니다. 생성된 이미지를 길게 눌러 저장하거나 브라우저의 팝업/다운로드 허용 설정을 확인해 주세요.");
       return;
     }
 
@@ -479,26 +739,9 @@ function openImageFallback() {
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <title>만화마을 주민등록증</title>
           <style>
-            body {
-              margin: 0;
-              padding: 20px;
-              background: #111;
-              color: white;
-              font-family: sans-serif;
-              text-align: center;
-            }
-            p {
-              line-height: 1.6;
-              font-size: 14px;
-            }
-            img {
-              display: block;
-              width: 100%;
-              max-width: 720px;
-              height: auto;
-              margin: 18px auto 0;
-              border-radius: 12px;
-            }
+            body { margin:0; padding:20px; background:#111; color:#fff; font-family:sans-serif; text-align:center; }
+            p { line-height:1.6; font-size:14px; }
+            img { display:block; width:100%; max-width:720px; height:auto; margin:18px auto 0; border-radius:12px; }
           </style>
         </head>
         <body>
@@ -507,6 +750,7 @@ function openImageFallback() {
         </body>
       </html>
     `);
+
     popup.document.close();
   } catch (error) {
     console.error("이미지 열기 실패:", error);
@@ -585,6 +829,7 @@ function drawWrappedText(
 
   chars.forEach((char) => {
     const test = line + char;
+
     if (context.measureText(test).width > maxWidth && line) {
       lines.push(line);
       line = char;
@@ -596,15 +841,26 @@ function drawWrappedText(
   if (line) lines.push(line);
 
   const output = lines.slice(0, maxLines);
+
   if (lines.length > maxLines) {
-    output[maxLines - 1] = ellipsis(output[maxLines - 1], output[maxLines - 1].length - 1);
+    output[maxLines - 1] = ellipsis(
+      output[maxLines - 1],
+      Math.max(2, output[maxLines - 1].length - 1)
+    );
   }
 
   const oldAlign = context.textAlign;
-  if (centered) context.textAlign = "center";
+
+  if (centered) {
+    context.textAlign = "center";
+  }
 
   output.forEach((item, index) => {
-    context.fillText(item, x + (centered ? maxWidth / 2 : 0), y + index * lineHeight);
+    context.fillText(
+      item,
+      x + (centered ? maxWidth / 2 : 0),
+      y + index * lineHeight
+    );
   });
 
   context.textAlign = oldAlign;
@@ -612,14 +868,18 @@ function drawWrappedText(
 
 function ellipsis(text, maxLength) {
   if (!text) return "";
-  return text.length > maxLength ? `${text.slice(0, Math.max(1, maxLength - 1))}…` : text;
+  return text.length > maxLength
+    ? `${text.slice(0, Math.max(1, maxLength - 1))}…`
+    : text;
 }
 
 function simpleHash(text) {
   let hash = 0;
+
   for (let i = 0; i < text.length; i += 1) {
     hash = (hash << 5) - hash + text.charCodeAt(i);
     hash |= 0;
   }
+
   return Math.abs(hash);
 }
