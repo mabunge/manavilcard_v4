@@ -133,9 +133,62 @@
           <input id="showContact" type="checkbox" checked />
         </label>
 
-
         <div class="section-title">
           <span>05</span>
+          <div>
+            <h2>최애 이미지 스티커</h2>
+            <p>최대 3장까지 넣을 수 있고, 각각 위치 / 크기 / 회전을 따로 편집할 수 있어요. PNG 파일은 투명 배경이 그대로 유지됩니다.</p>
+          </div>
+        </div>
+
+        <div class="sticker-slot-grid">
+          <div class="sticker-slot">
+            <div class="sticker-slot-head">스티커 1</div>
+            <label class="photo-picker">
+              <input id="favoriteImageInput1" type="file" accept="image/*" />
+              <div id="favoriteImagePreview1" class="photo-preview sticker-preview">
+                <span>이미지 선택</span>
+              </div>
+            </label>
+            <div class="inline-actions">
+              <button id="editFavoriteImageBtn1" class="secondary-btn compact-btn" type="button" disabled>편집</button>
+              <button id="removeFavoriteImageBtn1" class="secondary-btn compact-btn" type="button" disabled>제거</button>
+            </div>
+          </div>
+
+          <div class="sticker-slot">
+            <div class="sticker-slot-head">스티커 2</div>
+            <label class="photo-picker">
+              <input id="favoriteImageInput2" type="file" accept="image/*" />
+              <div id="favoriteImagePreview2" class="photo-preview sticker-preview">
+                <span>이미지 선택</span>
+              </div>
+            </label>
+            <div class="inline-actions">
+              <button id="editFavoriteImageBtn2" class="secondary-btn compact-btn" type="button" disabled>편집</button>
+              <button id="removeFavoriteImageBtn2" class="secondary-btn compact-btn" type="button" disabled>제거</button>
+            </div>
+          </div>
+
+          <div class="sticker-slot">
+            <div class="sticker-slot-head">스티커 3</div>
+            <label class="photo-picker">
+              <input id="favoriteImageInput3" type="file" accept="image/*" />
+              <div id="favoriteImagePreview3" class="photo-preview sticker-preview">
+                <span>이미지 선택</span>
+              </div>
+            </label>
+            <div class="inline-actions">
+              <button id="editFavoriteImageBtn3" class="secondary-btn compact-btn" type="button" disabled>편집</button>
+              <button id="removeFavoriteImageBtn3" class="secondary-btn compact-btn" type="button" disabled>제거</button>
+            </div>
+          </div>
+        </div>
+
+        <p class="helper-left">팝업 편집기에서 스티커를 드래그해 이동하고, 슬라이더로 크기와 각도를 조절하세요.</p>
+
+        <div class="section-title">
+          <span>06</span>
           <div>
             <h2>도장 설정</h2>
             <p>랜덤으로 뽑거나 원하는 문구를 직접 입력할 수 있어요.</p>
@@ -165,7 +218,7 @@
 
     <section id="resultSection" class="panel result-panel" hidden>
       <div class="section-title">
-        <span>06</span>
+        <span>07</span>
         <div>
           <h2>발급 완료</h2>
           <p>아래 버튼으로 PNG를 저장하세요. 갤럭시에서 저장이 막히면 생성된 이미지를 길게 눌러 저장할 수도 있습니다.</p>
@@ -181,7 +234,6 @@
         <button id="rerollStampBtn" class="secondary-btn" type="button">도장 다시 뽑기</button>
       </div>
     </section>
-
 
     <div id="cropModal" class="crop-modal" hidden>
       <div class="crop-sheet" role="dialog" aria-modal="true" aria-labelledby="cropTitle">
@@ -211,6 +263,38 @@
       </div>
     </div>
 
+    <div id="stickerModal" class="crop-modal" hidden>
+      <div class="crop-sheet sticker-sheet" role="dialog" aria-modal="true" aria-labelledby="stickerTitle">
+        <div class="crop-head">
+          <div>
+            <p class="crop-kicker">FAVORITE STICKER</p>
+            <h2 id="stickerTitle">스티커 편집</h2>
+          </div>
+          <button id="stickerCloseBtn" class="icon-btn" type="button" aria-label="스티커 편집 닫기">×</button>
+        </div>
+
+        <p id="stickerEditingLabel" class="helper-left">스티커를 드래그해서 위치를 바꾸고, 슬라이더로 크기와 회전을 조절하세요.</p>
+
+        <div class="sticker-stage-wrap">
+          <canvas id="stickerCanvas" width="1080" height="680" aria-label="스티커 카드 배치 미리보기"></canvas>
+        </div>
+
+        <label class="zoom-control">
+          <span>크기</span>
+          <input id="stickerScale" type="range" min="0.4" max="2.8" step="0.01" value="1" />
+        </label>
+
+        <label class="zoom-control">
+          <span>회전</span>
+          <input id="stickerRotation" type="range" min="-180" max="180" step="1" value="0" />
+        </label>
+
+        <div class="crop-actions">
+          <button id="stickerCancelBtn" class="secondary-btn" type="button">취소</button>
+          <button id="stickerApplyBtn" class="primary-btn" type="button">이대로 사용</button>
+        </div>
+      </div>
+    </div>
 
     <footer>
       <p>만화마을 주민등록증 메이커 · 모든 입력 정보는 브라우저에서만 처리됩니다.</p>
