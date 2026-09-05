@@ -5,36 +5,54 @@ if ("caches" in window) {
     .catch(() => {});
 }
 
-const form = document.getElementById("residentForm");
-const photoInput = document.getElementById("photoInput");
-const photoPreview = document.getElementById("photoPreview");
-const genreList = document.getElementById("genreList");
-const genreCount = document.getElementById("genreCount");
-const intro = document.getElementById("intro");
-const introCount = document.getElementById("introCount");
+const $ = (id) => document.getElementById(id);
 
-const resultSection = document.getElementById("resultSection");
-const canvas = document.getElementById("cardCanvas");
+const form = $("residentForm");
+const photoInput = $("photoInput");
+const photoPreview = $("photoPreview");
+const genreList = $("genreList");
+const genreCount = $("genreCount");
+const intro = $("intro");
+const introCount = $("introCount");
+
+const resultSection = $("resultSection");
+const canvas = $("cardCanvas");
 const ctx = canvas.getContext("2d");
-const downloadBtn = document.getElementById("downloadBtn");
-const rerollStampBtn = document.getElementById("rerollStampBtn");
+const downloadBtn = $("downloadBtn");
+const rerollStampBtn = $("rerollStampBtn");
 
-// Cropper
-const cropModal = document.getElementById("cropModal");
-const cropCanvas = document.getElementById("cropCanvas");
+const cropModal = $("cropModal");
+const cropCanvas = $("cropCanvas");
 const cropCtx = cropCanvas.getContext("2d");
-const cropZoom = document.getElementById("cropZoom");
-const cropApplyBtn = document.getElementById("cropApplyBtn");
-const cropCancelBtn = document.getElementById("cropCancelBtn");
-const cropCloseBtn = document.getElementById("cropCloseBtn");
+const cropZoom = $("cropZoom");
+const cropApplyBtn = $("cropApplyBtn");
+const cropCancelBtn = $("cropCancelBtn");
+const cropCloseBtn = $("cropCloseBtn");
 
-const stampRandomModeBtn = document.getElementById("stampRandomModeBtn");
-const stampCustomModeBtn = document.getElementById("stampCustomModeBtn");
-const stampRandomPanel = document.getElementById("stampRandomPanel");
-const stampCustomPanel = document.getElementById("stampCustomPanel");
-const customStampText = document.getElementById("customStampText");
-const customStampCount = document.getElementById("customStampCount");
+const stickerModal = $("stickerModal");
+const stickerCanvas = $("stickerCanvas");
+const stickerCtx = stickerCanvas.getContext("2d");
+const stickerScaleInput = $("stickerScale");
+const stickerRotationInput = $("stickerRotation");
+const stickerApplyBtn = $("stickerApplyBtn");
+const stickerCancelBtn = $("stickerCancelBtn");
+const stickerCloseBtn = $("stickerCloseBtn");
+const stickerEditingLabel = $("stickerEditingLabel");
 
+const stampRandomModeBtn = $("stampRandomModeBtn");
+const stampCustomModeBtn = $("stampCustomModeBtn");
+const stampRandomPanel = $("stampRandomPanel");
+const stampCustomPanel = $("stampCustomPanel");
+const customStampText = $("customStampText");
+const customStampCount = $("customStampCount");
+
+const stickerSlots = [1, 2, 3].map((n, index) => ({
+  index,
+  input: $(`favoriteImageInput${n}`),
+  preview: $(`favoriteImagePreview${n}`),
+  editBtn: $(`editFavoriteImageBtn${n}`),
+  removeBtn: $(`removeFavoriteImageBtn${n}`),
+}));
 
 const selectedGenres = new Set();
 
@@ -42,7 +60,6 @@ let profileImage = null;
 let currentStamp = "";
 let stampMode = "random";
 
-// Original image currently being edited in the cropper
 let cropSourceImage = null;
 let cropBaseScale = 1;
 let cropScale = 1;
@@ -52,6 +69,19 @@ let cropDragging = false;
 let cropPointerId = null;
 let cropLastX = 0;
 let cropLastY = 0;
+
+let stickers = Array.from({ length: 3 }, () => ({ image: null, previewSrc: "", transform: null }));
+let activeStickerIndex = null;
+let stickerDraftImage = null;
+let stickerDraftPreviewSrc = "";
+let stickerDraftTransform = null;
+let stickerDragging = false;
+let stickerPointerId = null;
+let stickerLastX = 0;
+let stickerLastY = 0;
+
+const STICKER_BASE_SIZE = 200;
+const CARD_PADDING = 40;
 
 const stamps = [
   "정상 주민",
@@ -63,8 +93,6 @@ const stamps = [
   "픽업 폭사 주의",
   "취향 전파 가능",
 ];
-
-const $ = (id) => document.getElementById(id);
 
 genreList.addEventListener("click", (event) => {
   const button = event.target.closest(".chip");
@@ -96,25 +124,76 @@ photoInput.addEventListener("change", async () => {
   const file = photoInput.files?.[0];
   if (!file) return;
 
-  if (!file.type.startsWith("image/")) {
-    alert("이미지 파일만 선택할 수 있어요.");
-    photoInput.value = "";
-    return;
-  }
-
-  if (file.size > 10 * 1024 * 1024) {
-    alert("사진은 10MB 이하로 선택해 주세요.");
-    photoInput.value = "";
-    return;
-  }
-
   try {
+    ensureImageFile(file);
     const dataUrl = await fileToDataURL(file);
     cropSourceImage = await loadImage(dataUrl);
     openCropper(cropSourceImage);
-  } catch {
-    alert("사진을 불러오지 못했습니다.");
+  } catch (error) {
+    handleImageLoadError(error, photoInput);
   }
+});
+
+stickerSlots.forEach((slot) => {
+  slot.input.addEventListener("change", async () => {
+    const file = slot.input.files?.[0];
+    if (!file) return;
+
+    try {
+      ensureImageFile(file);
+      const dataUrl = await fileToDataURL(file);
+      const image = await loadImage(dataUrl);
+
+      activeStickerIndex = slot.index;
+      stickerDraftImage = image;
+      stickerDraftPreviewSrc = dataUrl;
+      stickerDraftTransform = createDefaultStickerTransform(slot.index, image);
+
+      openStickerEditor(slot.index);
+    } catch (error) {
+      handleImageLoadError(error, slot.input);
+    }
+  });
+
+  slot.editBtn.addEventListener("click", () => {
+    const sticker = stickers[slot.index];
+    if (!sticker.image || !sticker.transform) return;
+
+    activeStickerIndex = slot.index;
+    stickerDraftImage = sticker.image;
+    stickerDraftPreviewSrc = sticker.previewSrc;
+    stickerDraftTransform = { ...sticker.transform };
+    openStickerEditor(slot.index);
+  });
+
+  slot.removeBtn.addEventListener("click", () => {
+    stickers[slot.index] = { image: null, previewSrc: "", transform: null };
+    slot.input.value = "";
+    refreshStickerSlotUI(slot.index);
+
+    if (!resultSection.hidden) {
+      drawCard();
+    }
+  });
+});
+
+stampRandomModeBtn.addEventListener("click", () => {
+  setStampMode("random");
+});
+
+stampCustomModeBtn.addEventListener("click", () => {
+  setStampMode("custom");
+  customStampText.focus();
+});
+
+customStampText.addEventListener("input", () => {
+  const value = [...customStampText.value].slice(0, 8).join("");
+
+  if (customStampText.value !== value) {
+    customStampText.value = value;
+  }
+
+  customStampCount.textContent = [...customStampText.value].length;
 });
 
 cropZoom.addEventListener("input", () => {
@@ -123,7 +202,6 @@ cropZoom.addEventListener("input", () => {
   const oldScale = cropScale;
   cropScale = cropBaseScale * Number(cropZoom.value);
 
-  // Keep the visible center stable while zooming.
   const cx = cropCanvas.width / 2;
   const cy = cropCanvas.height / 2;
   const ratio = cropScale / oldScale;
@@ -150,11 +228,11 @@ cropCanvas.addEventListener("pointermove", (event) => {
   if (!cropDragging || event.pointerId !== cropPointerId) return;
 
   const rect = cropCanvas.getBoundingClientRect();
-  const canvasPerCssX = cropCanvas.width / rect.width;
-  const canvasPerCssY = cropCanvas.height / rect.height;
+  const scaleX = cropCanvas.width / rect.width;
+  const scaleY = cropCanvas.height / rect.height;
 
-  cropOffsetX += (event.clientX - cropLastX) * canvasPerCssX;
-  cropOffsetY += (event.clientY - cropLastY) * canvasPerCssY;
+  cropOffsetX += (event.clientX - cropLastX) * scaleX;
+  cropOffsetY += (event.clientY - cropLastY) * scaleY;
 
   cropLastX = event.clientX;
   cropLastY = event.clientY;
@@ -169,7 +247,6 @@ cropCanvas.addEventListener("pointercancel", stopCropDrag);
 cropApplyBtn.addEventListener("click", async () => {
   if (!cropSourceImage) return;
 
-  // Save only the final 3:4 crop as the profile image.
   const output = document.createElement("canvas");
   output.width = 600;
   output.height = 800;
@@ -190,44 +267,110 @@ cropApplyBtn.addEventListener("click", async () => {
   photoPreview.classList.add("has-image");
 
   closeCropper();
+
+  if (!resultSection.hidden) {
+    drawCard();
+  }
 });
 
-cropCancelBtn.addEventListener("click", cancelCropper);
-cropCloseBtn.addEventListener("click", cancelCropper);
+cropCancelBtn.addEventListener("click", closeCropper);
+cropCloseBtn.addEventListener("click", closeCropper);
 
 cropModal.addEventListener("click", (event) => {
-  if (event.target === cropModal) cancelCropper();
+  if (event.target === cropModal) closeCropper();
+});
+
+stickerScaleInput.addEventListener("input", () => {
+  if (!stickerDraftTransform || activeStickerIndex === null || !stickerDraftImage) return;
+
+  stickerDraftTransform.scale = Number(stickerScaleInput.value);
+  clampStickerTransform(stickerDraftTransform, stickerDraftImage);
+  renderStickerEditor();
+});
+
+stickerRotationInput.addEventListener("input", () => {
+  if (!stickerDraftTransform || activeStickerIndex === null || !stickerDraftImage) return;
+
+  stickerDraftTransform.rotation = Number(stickerRotationInput.value);
+  clampStickerTransform(stickerDraftTransform, stickerDraftImage);
+  renderStickerEditor();
+});
+
+stickerCanvas.addEventListener("pointerdown", (event) => {
+  if (!stickerDraftImage || !stickerDraftTransform) return;
+
+  const point = getCanvasPoint(stickerCanvas, event);
+  if (!pointInsideSticker(point.x, point.y, stickerDraftImage, stickerDraftTransform)) return;
+
+  stickerDragging = true;
+  stickerPointerId = event.pointerId;
+  stickerLastX = point.x;
+  stickerLastY = point.y;
+  stickerCanvas.classList.add("is-dragging");
+  stickerCanvas.setPointerCapture(event.pointerId);
+});
+
+stickerCanvas.addEventListener("pointermove", (event) => {
+  if (!stickerDragging || event.pointerId !== stickerPointerId || !stickerDraftTransform || !stickerDraftImage) return;
+
+  const point = getCanvasPoint(stickerCanvas, event);
+  const dx = point.x - stickerLastX;
+  const dy = point.y - stickerLastY;
+
+  stickerDraftTransform.x += dx;
+  stickerDraftTransform.y += dy;
+
+  stickerLastX = point.x;
+  stickerLastY = point.y;
+
+  clampStickerTransform(stickerDraftTransform, stickerDraftImage);
+  renderStickerEditor();
+});
+
+stickerCanvas.addEventListener("pointerup", stopStickerDrag);
+stickerCanvas.addEventListener("pointercancel", stopStickerDrag);
+
+stickerApplyBtn.addEventListener("click", () => {
+  if (activeStickerIndex === null || !stickerDraftImage || !stickerDraftTransform) return;
+
+  stickers[activeStickerIndex] = {
+    image: stickerDraftImage,
+    previewSrc: stickerDraftPreviewSrc,
+    transform: { ...stickerDraftTransform },
+  };
+
+  refreshStickerSlotUI(activeStickerIndex);
+  closeStickerEditor();
+
+  if (!resultSection.hidden) {
+    drawCard();
+  }
+});
+
+stickerCancelBtn.addEventListener("click", closeStickerEditor);
+stickerCloseBtn.addEventListener("click", closeStickerEditor);
+
+stickerModal.addEventListener("click", (event) => {
+  if (event.target === stickerModal) closeStickerEditor();
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !cropModal.hidden) {
-    cancelCropper();
+  if (event.key !== "Escape") return;
+
+  if (!stickerModal.hidden) {
+    closeStickerEditor();
+    return;
   }
-});
 
-
-stampRandomModeBtn.addEventListener("click", () => {
-  setStampMode("random");
-});
-
-stampCustomModeBtn.addEventListener("click", () => {
-  setStampMode("custom");
-  customStampText.focus();
-});
-
-customStampText.addEventListener("input", () => {
-  const value = [...customStampText.value].slice(0, 8).join("");
-  if (customStampText.value !== value) {
-    customStampText.value = value;
+  if (!cropModal.hidden) {
+    closeCropper();
   }
-  customStampCount.textContent = [...customStampText.value].length;
 });
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
 
   const name = $("name").value.trim();
-
   if (!name) {
     alert("이름을 입력해 주세요.");
     $("name").focus();
@@ -242,11 +385,13 @@ form.addEventListener("submit", (event) => {
 
   if (stampMode === "custom") {
     const customText = customStampText.value.trim();
+
     if (!customText) {
       alert("커스텀 도장 문구를 입력해 주세요.");
       customStampText.focus();
       return;
     }
+
     currentStamp = [...customText].slice(0, 8).join("");
   } else {
     currentStamp = randomStamp();
@@ -260,20 +405,23 @@ form.addEventListener("submit", (event) => {
 rerollStampBtn.addEventListener("click", () => {
   if (stampMode === "custom") {
     const customText = customStampText.value.trim();
+
     if (!customText) {
       alert("커스텀 도장 문구를 입력해 주세요.");
       return;
     }
+
     currentStamp = [...customText].slice(0, 8).join("");
   } else {
     currentStamp = randomStamp(currentStamp);
   }
+
   drawCard();
 });
 
 downloadBtn.addEventListener("click", () => {
   const name = $("name").value.trim() || "resident";
-  const safeName = name.replace(/[\\/:*?"<>|]/g, "_");
+  const safeName = name.replace(/[\/:*?"<>|]/g, "_");
   const fileName = `만화마을_주민등록증_${safeName}.png`;
 
   try {
@@ -292,137 +440,42 @@ downloadBtn.addEventListener("click", () => {
   }
 });
 
-function openCropper(image) {
-  const canvasW = cropCanvas.width;
-  const canvasH = cropCanvas.height;
-
-  // Minimum scale always covers the whole 3:4 crop frame.
-  cropBaseScale = Math.max(canvasW / image.width, canvasH / image.height);
-  cropScale = cropBaseScale;
-  cropZoom.value = "1";
-
-  const drawW = image.width * cropScale;
-  const drawH = image.height * cropScale;
-
-  cropOffsetX = (canvasW - drawW) / 2;
-  cropOffsetY = (canvasH - drawH) / 2;
-
-  clampCropOffset();
-  renderCropper();
-
-  cropModal.hidden = false;
-  document.body.classList.add("is-modal-open");
+function handleImageLoadError(error, inputElement) {
+  console.error(error);
+  alert(error instanceof Error ? error.message : "이미지를 불러오지 못했습니다.");
+  if (inputElement) inputElement.value = "";
 }
 
-function closeCropper() {
-  cropModal.hidden = true;
-  document.body.classList.remove("is-modal-open");
-  cropSourceImage = null;
-  cropDragging = false;
-  cropPointerId = null;
-  cropCanvas.classList.remove("is-dragging");
-  photoInput.value = "";
-}
+function ensureImageFile(file) {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("이미지 파일만 선택할 수 있어요.");
+  }
 
-function cancelCropper() {
-  closeCropper();
-}
-
-function stopCropDrag(event) {
-  if (event.pointerId !== cropPointerId) return;
-
-  cropDragging = false;
-  cropPointerId = null;
-  cropCanvas.classList.remove("is-dragging");
-
-  try {
-    cropCanvas.releasePointerCapture(event.pointerId);
-  } catch (_) {
-    // Some mobile browsers release pointer capture automatically.
+  if (file.size > 10 * 1024 * 1024) {
+    throw new Error("이미지는 10MB 이하로 선택해 주세요.");
   }
 }
 
-function clampCropOffset() {
-  if (!cropSourceImage) return;
+function refreshStickerSlotUI(index) {
+  const slot = stickerSlots[index];
+  const sticker = stickers[index];
+  if (!slot) return;
 
-  const drawW = cropSourceImage.width * cropScale;
-  const drawH = cropSourceImage.height * cropScale;
-
-  // The image must cover the entire crop canvas.
-  const minX = cropCanvas.width - drawW;
-  const minY = cropCanvas.height - drawH;
-
-  cropOffsetX = Math.min(0, Math.max(minX, cropOffsetX));
-  cropOffsetY = Math.min(0, Math.max(minY, cropOffsetY));
-}
-
-function renderCropper() {
-  cropCtx.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
-
-  cropCtx.fillStyle = "#111";
-  cropCtx.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
-
-  if (!cropSourceImage) return;
-
-  drawCropImage(cropCtx);
-
-  // Simple composition guides.
-  cropCtx.save();
-  cropCtx.strokeStyle = "rgba(255,255,255,.44)";
-  cropCtx.lineWidth = 2;
-
-  for (const ratio of [1 / 3, 2 / 3]) {
-    cropCtx.beginPath();
-    cropCtx.moveTo(cropCanvas.width * ratio, 0);
-    cropCtx.lineTo(cropCanvas.width * ratio, cropCanvas.height);
-    cropCtx.stroke();
-
-    cropCtx.beginPath();
-    cropCtx.moveTo(0, cropCanvas.height * ratio);
-    cropCtx.lineTo(cropCanvas.width, cropCanvas.height * ratio);
-    cropCtx.stroke();
+  if (sticker.image && sticker.previewSrc) {
+    slot.preview.innerHTML = "";
+    const img = document.createElement("img");
+    img.src = sticker.previewSrc;
+    img.alt = `선택된 스티커 ${index + 1}`;
+    slot.preview.appendChild(img);
+    slot.preview.classList.add("has-image");
+    slot.editBtn.disabled = false;
+    slot.removeBtn.disabled = false;
+  } else {
+    slot.preview.innerHTML = "<span>이미지 선택</span>";
+    slot.preview.classList.remove("has-image");
+    slot.editBtn.disabled = true;
+    slot.removeBtn.disabled = true;
   }
-
-  cropCtx.restore();
-
-  cropCtx.save();
-  cropCtx.strokeStyle = "rgba(255,255,255,.9)";
-  cropCtx.lineWidth = 8;
-  cropCtx.strokeRect(4, 4, cropCanvas.width - 8, cropCanvas.height - 8);
-  cropCtx.restore();
-}
-
-function drawCropImage(context) {
-  if (!cropSourceImage) return;
-
-  const drawW = cropSourceImage.width * cropScale;
-  const drawH = cropSourceImage.height * cropScale;
-
-  context.drawImage(
-    cropSourceImage,
-    cropOffsetX,
-    cropOffsetY,
-    drawW,
-    drawH
-  );
-}
-
-function drawCard() {
-  const data = collectFormData();
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  drawBackground();
-  drawHeader();
-  drawPhoto(profileImage);
-  drawIdentity(data);
-  drawGenres(data.genres);
-  drawFavoriteInfo(data);
-  drawIntro(data.intro);
-  drawContact(data);
-  drawResidentCode(data);
-  drawStamp(currentStamp);
-  drawFooter();
 }
 
 function collectFormData() {
@@ -443,163 +496,235 @@ function collectFormData() {
   };
 }
 
-function drawBackground() {
-  ctx.fillStyle = "#f7f3e9";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+function drawCard() {
+  renderCardToContext(ctx, collectFormData(), {
+    stampText: currentStamp,
+    stickers,
+    guideIndex: null,
+  });
+}
 
-  ctx.strokeStyle = "#171717";
-  ctx.lineWidth = 4;
-  roundRect(ctx, 26, 26, canvas.width - 52, canvas.height - 52, 28);
-  ctx.stroke();
+function renderStickerEditor() {
+  const previewStamp = stampMode === "custom"
+    ? (customStampText.value.trim() || "커스텀")
+    : (currentStamp || "랜덤 도장");
 
-  ctx.fillStyle = "rgba(0,0,0,0.025)";
-  for (let y = 52; y < canvas.height - 40; y += 26) {
-    ctx.fillRect(50, y, canvas.width - 100, 1);
+  const stickerList = stickers.map((item, index) => {
+    if (index !== activeStickerIndex) return item;
+
+    return {
+      image: stickerDraftImage,
+      previewSrc: stickerDraftPreviewSrc,
+      transform: stickerDraftTransform,
+    };
+  });
+
+  renderCardToContext(stickerCtx, collectFormData(), {
+    stampText: previewStamp,
+    stickers: stickerList,
+    guideIndex: activeStickerIndex,
+  });
+}
+
+function renderCardToContext(targetCtx, data, options = {}) {
+  const { stampText = "", stickers = [], guideIndex = null } = options;
+
+  targetCtx.clearRect(0, 0, targetCtx.canvas.width, targetCtx.canvas.height);
+
+  drawBackground(targetCtx);
+  drawHeader(targetCtx);
+  drawPhoto(targetCtx, profileImage);
+  drawIdentity(targetCtx, data);
+  drawGenres(targetCtx, data.genres);
+  drawFavoriteInfo(targetCtx, data);
+  drawStickers(targetCtx, stickers, guideIndex);
+  drawIntro(targetCtx, data.intro);
+  drawContact(targetCtx, data);
+  drawResidentCode(targetCtx, data);
+  drawStamp(targetCtx, stampText || "주민");
+  drawFooter(targetCtx);
+}
+
+function drawBackground(targetCtx) {
+  targetCtx.fillStyle = "#f7f3e9";
+  targetCtx.fillRect(0, 0, targetCtx.canvas.width, targetCtx.canvas.height);
+
+  targetCtx.strokeStyle = "#171717";
+  targetCtx.lineWidth = 4;
+  roundRect(targetCtx, 26, 26, targetCtx.canvas.width - 52, targetCtx.canvas.height - 52, 28);
+  targetCtx.stroke();
+
+  targetCtx.fillStyle = "rgba(0,0,0,0.025)";
+  for (let y = 52; y < targetCtx.canvas.height - 40; y += 26) {
+    targetCtx.fillRect(50, y, targetCtx.canvas.width - 100, 1);
   }
 
-  ctx.save();
-  ctx.translate(820, 210);
-  ctx.rotate(-0.2);
-  ctx.fillStyle = "rgba(0,0,0,0.035)";
-  ctx.font = "900 90px sans-serif";
-  ctx.fillText("MANGA", -150, 0);
-  ctx.fillText("VILLAGE", -195, 90);
-  ctx.restore();
+  targetCtx.save();
+  targetCtx.translate(820, 210);
+  targetCtx.rotate(-0.2);
+  targetCtx.fillStyle = "rgba(0,0,0,0.035)";
+  targetCtx.font = "900 90px sans-serif";
+  targetCtx.fillText("MANGA", -150, 0);
+  targetCtx.fillText("VILLAGE", -195, 90);
+  targetCtx.restore();
 }
 
-function drawHeader() {
-  ctx.fillStyle = "#171717";
-  ctx.font = "900 46px sans-serif";
-  ctx.fillText("만화마을 주민등록증", 66, 90);
+function drawHeader(targetCtx) {
+  targetCtx.fillStyle = "#171717";
+  targetCtx.font = "900 46px sans-serif";
+  targetCtx.fillText("만화마을 주민등록증", 66, 90);
 
-  ctx.font = "800 17px sans-serif";
-  ctx.letterSpacing = "3px";
-  ctx.fillText("MANGA VILLAGE RESIDENT CARD", 68, 122);
-  ctx.letterSpacing = "0px";
+  targetCtx.font = "800 17px sans-serif";
+  targetCtx.fillText("MANGA VILLAGE RESIDENT CARD", 68, 122);
 
-  ctx.fillRect(68, 145, 944, 3);
+  targetCtx.fillRect(68, 145, 944, 3);
 }
 
-function drawPhoto(image) {
+function drawPhoto(targetCtx, image) {
   const x = 70;
   const y = 182;
   const w = 280;
   const h = 360;
 
-  ctx.save();
-  roundRect(ctx, x, y, w, h, 20);
-  ctx.clip();
+  targetCtx.save();
+  roundRect(targetCtx, x, y, w, h, 20);
+  targetCtx.clip();
 
   if (image) {
-    // The selected profile image is already cropped to 3:4.
-    drawImageCover(ctx, image, x, y, w, h);
+    drawImageCover(targetCtx, image, x, y, w, h);
   } else {
-    ctx.fillStyle = "#e6e0d5";
-    ctx.fillRect(x, y, w, h);
-
-    ctx.fillStyle = "#8e887f";
-    ctx.font = "800 24px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("PHOTO", x + w / 2, y + h / 2);
-    ctx.textAlign = "start";
+    targetCtx.fillStyle = "#e6e0d5";
+    targetCtx.fillRect(x, y, w, h);
+    targetCtx.fillStyle = "#8e887f";
+    targetCtx.font = "800 24px sans-serif";
+    targetCtx.textAlign = "center";
+    targetCtx.fillText("PHOTO", x + w / 2, y + h / 2);
+    targetCtx.textAlign = "start";
   }
 
-  ctx.restore();
+  targetCtx.restore();
 
-  ctx.strokeStyle = "#171717";
-  ctx.lineWidth = 3;
-  roundRect(ctx, x, y, w, h, 20);
-  ctx.stroke();
+  targetCtx.strokeStyle = "#171717";
+  targetCtx.lineWidth = 3;
+  roundRect(targetCtx, x, y, w, h, 20);
+  targetCtx.stroke();
 }
 
-function drawIdentity(data) {
+function drawIdentity(targetCtx, data) {
   const x = 395;
 
-  ctx.fillStyle = "#77736b";
-  ctx.font = "800 17px sans-serif";
-  ctx.fillText("NAME", x, 200);
+  targetCtx.fillStyle = "#77736b";
+  targetCtx.font = "800 17px sans-serif";
+  targetCtx.fillText("NAME", x, 200);
 
-  ctx.fillStyle = "#171717";
-  ctx.font = "900 54px sans-serif";
-  ctx.fillText(ellipsis(data.name, 11), x, 255);
+  targetCtx.fillStyle = "#171717";
+  targetCtx.font = "900 54px sans-serif";
+  targetCtx.fillText(ellipsis(data.name, 11), x, 255);
 
   if (data.nickname) {
-    ctx.fillStyle = "#77736b";
-    ctx.font = "700 23px sans-serif";
-    ctx.fillText(ellipsis(data.nickname, 18), x, 291);
+    targetCtx.fillStyle = "#77736b";
+    targetCtx.font = "700 23px sans-serif";
+    targetCtx.fillText(ellipsis(data.nickname, 18), x, 291);
   }
 }
 
-function drawGenres(genres) {
+function drawGenres(targetCtx, genres) {
   const x = 395;
   let cursorX = x;
   let cursorY = 338;
 
-  ctx.fillStyle = "#77736b";
-  ctx.font = "800 17px sans-serif";
-  ctx.fillText("MAIN GENRE", x, 320);
+  targetCtx.fillStyle = "#77736b";
+  targetCtx.font = "800 17px sans-serif";
+  targetCtx.fillText("MAIN GENRE", x, 320);
 
   genres.forEach((genre) => {
-    ctx.font = "800 19px sans-serif";
+    targetCtx.font = "800 19px sans-serif";
     const text = `#${genre}`;
-    const width = ctx.measureText(text).width + 28;
+    const width = targetCtx.measureText(text).width + 28;
 
     if (cursorX + width > 1000) {
       cursorX = x;
       cursorY += 48;
     }
 
-    ctx.fillStyle = "#171717";
-    roundRect(ctx, cursorX, cursorY, width, 36, 18);
-    ctx.fill();
+    targetCtx.fillStyle = "#171717";
+    roundRect(targetCtx, cursorX, cursorY, width, 36, 18);
+    targetCtx.fill();
 
-    ctx.fillStyle = "#fff";
-    ctx.fillText(text, cursorX + 14, cursorY + 24);
+    targetCtx.fillStyle = "#fff";
+    targetCtx.fillText(text, cursorX + 14, cursorY + 24);
 
     cursorX += width + 10;
   });
 }
 
-function drawFavoriteInfo(data) {
+function drawFavoriteInfo(targetCtx, data) {
   const x = 395;
   const y = 455;
 
-  ctx.fillStyle = "#77736b";
-  ctx.font = "800 16px sans-serif";
-  ctx.fillText("FAVORITE", x, y);
+  targetCtx.fillStyle = "#77736b";
+  targetCtx.font = "800 16px sans-serif";
+  targetCtx.fillText("FAVORITE", x, y);
 
-  ctx.fillStyle = "#171717";
-  ctx.font = "800 22px sans-serif";
+  targetCtx.fillStyle = "#171717";
+  targetCtx.font = "800 22px sans-serif";
 
   const work = data.favoriteWork || "-";
   const character = data.favoriteCharacter || "-";
 
-  ctx.fillText(`작품  ${ellipsis(work, 21)}`, x, y + 34);
-  ctx.fillText(`최애  ${ellipsis(character, 21)}`, x, y + 70);
+  targetCtx.fillText(`작품  ${ellipsis(work, 21)}`, x, y + 34);
+  targetCtx.fillText(`최애  ${ellipsis(character, 21)}`, x, y + 70);
 }
 
-function drawIntro(text) {
+function drawStickers(targetCtx, stickerList, guideIndex = null) {
+  stickerList.forEach((sticker, index) => {
+    if (!sticker || !sticker.image || !sticker.transform) return;
+    drawSticker(targetCtx, sticker.image, sticker.transform, guideIndex === index, index + 1);
+  });
+}
+
+function drawSticker(targetCtx, image, transform, showGuide = false, label = 1) {
+  const size = getStickerSize(image, transform);
+
+  targetCtx.save();
+  targetCtx.translate(transform.x, transform.y);
+  targetCtx.rotate((transform.rotation * Math.PI) / 180);
+  targetCtx.drawImage(image, -size.width / 2, -size.height / 2, size.width, size.height);
+
+  if (showGuide) {
+    targetCtx.strokeStyle = "rgba(23,23,23,.9)";
+    targetCtx.lineWidth = 3;
+    targetCtx.setLineDash([12, 8]);
+    targetCtx.strokeRect(-size.width / 2, -size.height / 2, size.width, size.height);
+    targetCtx.setLineDash([]);
+    targetCtx.fillStyle = "rgba(23,23,23,.9)";
+    targetCtx.font = "900 18px sans-serif";
+    targetCtx.fillText(`STICKER ${label}`, -size.width / 2, -size.height / 2 - 10);
+  }
+
+  targetCtx.restore();
+}
+
+function drawIntro(targetCtx, text) {
   const value = text || "만화마을의 새로운 주민입니다.";
-  ctx.fillStyle = "#171717";
-  ctx.font = "800 23px sans-serif";
-  drawWrappedText(ctx, `“${value}”`, 70, 595, 660, 31, 2);
+  targetCtx.fillStyle = "#171717";
+  targetCtx.font = "800 23px sans-serif";
+  drawWrappedText(targetCtx, `“${value}”`, 70, 595, 660, 31, 2);
 }
 
-function drawContact(data) {
-  ctx.fillStyle = "#77736b";
-  ctx.font = "800 14px sans-serif";
-  ctx.fillText("CONTACT", 745, 568);
+function drawContact(targetCtx, data) {
+  targetCtx.fillStyle = "#77736b";
+  targetCtx.font = "800 14px sans-serif";
+  targetCtx.fillText("CONTACT", 745, 568);
 
-  ctx.fillStyle = "#171717";
-  ctx.font = "800 18px sans-serif";
+  targetCtx.fillStyle = "#171717";
+  targetCtx.font = "800 18px sans-serif";
 
-  const contact =
-    data.showContact && data.contact ? ellipsis(data.contact, 23) : "PRIVATE";
-
-  ctx.fillText(contact, 745, 594);
+  const contact = data.showContact && data.contact ? ellipsis(data.contact, 23) : "PRIVATE";
+  targetCtx.fillText(contact, 745, 594);
 }
 
-function drawResidentCode(data) {
+function drawResidentCode(targetCtx, data) {
   const number = data.residentNumber
     ? String(data.residentNumber).padStart(3, "0")
     : String(simpleHash(data.name) % 999 + 1).padStart(3, "0");
@@ -607,52 +732,47 @@ function drawResidentCode(data) {
   const yy = String(data.joinYear).slice(-2);
   const code = `MM-${yy}-${number}`;
 
-  ctx.fillStyle = "#77736b";
-  ctx.font = "800 14px sans-serif";
-  ctx.fillText("RESIDENT CODE", 745, 620);
+  targetCtx.fillStyle = "#77736b";
+  targetCtx.font = "800 14px sans-serif";
+  targetCtx.fillText("RESIDENT CODE", 745, 620);
 
-  ctx.fillStyle = "#171717";
-  ctx.font = "900 22px monospace";
-  ctx.fillText(code, 745, 648);
+  targetCtx.fillStyle = "#171717";
+  targetCtx.font = "900 22px monospace";
+  targetCtx.fillText(code, 745, 648);
 }
 
-function drawStamp(text) {
+function drawStamp(targetCtx, text) {
   const x = 920;
   const y = 463;
 
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(-0.12);
-
-  ctx.strokeStyle = "#171717";
-  ctx.lineWidth = 5;
-  ctx.globalAlpha = 0.75;
-
-  ctx.beginPath();
-  ctx.arc(0, 0, 74, 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.arc(0, 0, 62, 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.fillStyle = "#171717";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  drawStampText(ctx, text);
-
-  ctx.restore();
+  targetCtx.save();
+  targetCtx.translate(x, y);
+  targetCtx.rotate(-0.12);
+  targetCtx.strokeStyle = "#171717";
+  targetCtx.lineWidth = 5;
+  targetCtx.globalAlpha = 0.75;
+  targetCtx.beginPath();
+  targetCtx.arc(0, 0, 74, 0, Math.PI * 2);
+  targetCtx.stroke();
+  targetCtx.beginPath();
+  targetCtx.arc(0, 0, 62, 0, Math.PI * 2);
+  targetCtx.stroke();
+  targetCtx.fillStyle = "#171717";
+  targetCtx.textAlign = "center";
+  targetCtx.textBaseline = "middle";
+  drawStampText(targetCtx, text);
+  targetCtx.restore();
 }
 
-function drawStampText(context, text) {
+function drawStampText(targetCtx, text) {
   const maxWidth = 104;
-  const cleanText = [...text.trim()].slice(0, 8).join("");
+  const cleanText = [...String(text).trim()].slice(0, 8).join("") || "주민";
 
   let fontSize = 19;
   while (fontSize >= 13) {
-    context.font = `900 ${fontSize}px sans-serif`;
-    if (context.measureText(cleanText).width <= maxWidth) {
-      context.fillText(cleanText, 0, 1);
+    targetCtx.font = `900 ${fontSize}px sans-serif`;
+    if (targetCtx.measureText(cleanText).width <= maxWidth) {
+      targetCtx.fillText(cleanText, 0, 1);
       return;
     }
     fontSize -= 1;
@@ -668,9 +788,8 @@ function drawStampText(context, text) {
     for (let i = 1; i < words.length; i += 1) {
       const line1 = words.slice(0, i).join(" ");
       const line2 = words.slice(i).join(" ");
-      context.font = "900 17px sans-serif";
-      const score = Math.abs(context.measureText(line1).width - context.measureText(line2).width);
-
+      targetCtx.font = "900 17px sans-serif";
+      const score = Math.abs(targetCtx.measureText(line1).width - targetCtx.measureText(line2).width);
       if (score < bestScore) {
         bestScore = score;
         lines = [line1, line2];
@@ -684,36 +803,211 @@ function drawStampText(context, text) {
 
   fontSize = 17;
   while (fontSize >= 11) {
-    context.font = `900 ${fontSize}px sans-serif`;
-    if (lines.every((line) => context.measureText(line).width <= maxWidth)) {
-      break;
-    }
+    targetCtx.font = `900 ${fontSize}px sans-serif`;
+    if (lines.every((line) => targetCtx.measureText(line).width <= maxWidth)) break;
     fontSize -= 1;
   }
 
   const lineHeight = fontSize + 5;
-  context.font = `900 ${fontSize}px sans-serif`;
-  context.fillText(lines[0], 0, -lineHeight / 2);
-
-  if (lines[1]) {
-    context.fillText(lines[1], 0, lineHeight / 2);
-  }
+  targetCtx.font = `900 ${fontSize}px sans-serif`;
+  targetCtx.fillText(lines[0], 0, -lineHeight / 2);
+  if (lines[1]) targetCtx.fillText(lines[1], 0, lineHeight / 2);
 }
 
-function drawFooter() {
-  ctx.fillStyle = "#171717";
-  ctx.font = "900 13px sans-serif";
-  ctx.fillText("만화마을 주민센터", 70, 648);
+function drawFooter(targetCtx) {
+  targetCtx.fillStyle = "#171717";
+  targetCtx.font = "900 13px sans-serif";
+  targetCtx.fillText("만화마을 주민센터", 70, 648);
+  targetCtx.textAlign = "right";
+  targetCtx.fillText("MANGA VILLAGE · 2026", 1008, 648);
+  targetCtx.textAlign = "start";
+}
 
-  ctx.textAlign = "right";
-  ctx.fillText("MANGA VILLAGE · 2026", 1008, 648);
-  ctx.textAlign = "start";
+function openCropper(image) {
+  cropBaseScale = Math.max(cropCanvas.width / image.width, cropCanvas.height / image.height);
+  cropScale = cropBaseScale;
+  cropZoom.value = "1";
+
+  const drawW = image.width * cropScale;
+  const drawH = image.height * cropScale;
+  cropOffsetX = (cropCanvas.width - drawW) / 2;
+  cropOffsetY = (cropCanvas.height - drawH) / 2;
+
+  clampCropOffset();
+  renderCropper();
+  cropModal.hidden = false;
+  document.body.classList.add("is-modal-open");
+}
+
+function closeCropper() {
+  cropModal.hidden = true;
+  document.body.classList.remove("is-modal-open");
+  cropSourceImage = null;
+  cropDragging = false;
+  cropPointerId = null;
+  cropCanvas.classList.remove("is-dragging");
+  photoInput.value = "";
+}
+
+function stopCropDrag(event) {
+  if (event.pointerId !== cropPointerId) return;
+  cropDragging = false;
+  cropPointerId = null;
+  cropCanvas.classList.remove("is-dragging");
+  try {
+    cropCanvas.releasePointerCapture(event.pointerId);
+  } catch (_) {}
+}
+
+function clampCropOffset() {
+  if (!cropSourceImage) return;
+  const drawW = cropSourceImage.width * cropScale;
+  const drawH = cropSourceImage.height * cropScale;
+  const minX = cropCanvas.width - drawW;
+  const minY = cropCanvas.height - drawH;
+  cropOffsetX = Math.min(0, Math.max(minX, cropOffsetX));
+  cropOffsetY = Math.min(0, Math.max(minY, cropOffsetY));
+}
+
+function renderCropper() {
+  cropCtx.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+  cropCtx.fillStyle = "#111";
+  cropCtx.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
+  if (!cropSourceImage) return;
+
+  drawCropImage(cropCtx);
+
+  cropCtx.save();
+  cropCtx.strokeStyle = "rgba(255,255,255,.44)";
+  cropCtx.lineWidth = 2;
+  for (const ratio of [1 / 3, 2 / 3]) {
+    cropCtx.beginPath();
+    cropCtx.moveTo(cropCanvas.width * ratio, 0);
+    cropCtx.lineTo(cropCanvas.width * ratio, cropCanvas.height);
+    cropCtx.stroke();
+
+    cropCtx.beginPath();
+    cropCtx.moveTo(0, cropCanvas.height * ratio);
+    cropCtx.lineTo(cropCanvas.width, cropCanvas.height * ratio);
+    cropCtx.stroke();
+  }
+  cropCtx.restore();
+
+  cropCtx.save();
+  cropCtx.strokeStyle = "rgba(255,255,255,.9)";
+  cropCtx.lineWidth = 8;
+  cropCtx.strokeRect(4, 4, cropCanvas.width - 8, cropCanvas.height - 8);
+  cropCtx.restore();
+}
+
+function drawCropImage(targetCtx) {
+  if (!cropSourceImage) return;
+  const drawW = cropSourceImage.width * cropScale;
+  const drawH = cropSourceImage.height * cropScale;
+  targetCtx.drawImage(cropSourceImage, cropOffsetX, cropOffsetY, drawW, drawH);
+}
+
+function createDefaultStickerTransform(index) {
+  const presets = [
+    { x: 820, y: 560, rotation: -8 },
+    { x: 920, y: 520, rotation: 8 },
+    { x: 990, y: 550, rotation: -4 },
+  ];
+  const preset = presets[index] || presets[0];
+  return {
+    x: preset.x,
+    y: preset.y,
+    scale: 1,
+    rotation: preset.rotation,
+  };
+}
+
+function openStickerEditor(index) {
+  if (!stickerDraftImage || !stickerDraftTransform) return;
+
+  const label = index + 1;
+  stickerEditingLabel.textContent = `스티커 ${label} 편집 중 · 드래그로 위치 이동, 슬라이더로 크기 / 회전 조절`;
+  stickerScaleInput.value = String(stickerDraftTransform.scale);
+  stickerRotationInput.value = String(stickerDraftTransform.rotation);
+  clampStickerTransform(stickerDraftTransform, stickerDraftImage);
+  renderStickerEditor();
+  stickerModal.hidden = false;
+  document.body.classList.add("is-modal-open");
+}
+
+function closeStickerEditor() {
+  stickerModal.hidden = true;
+  document.body.classList.remove("is-modal-open");
+  stickerDragging = false;
+  stickerPointerId = null;
+  stickerCanvas.classList.remove("is-dragging");
+  activeStickerIndex = null;
+  stickerDraftImage = null;
+  stickerDraftPreviewSrc = "";
+  stickerDraftTransform = null;
+}
+
+function stopStickerDrag(event) {
+  if (event.pointerId !== stickerPointerId) return;
+  stickerDragging = false;
+  stickerPointerId = null;
+  stickerCanvas.classList.remove("is-dragging");
+  try {
+    stickerCanvas.releasePointerCapture(event.pointerId);
+  } catch (_) {}
+}
+
+function getStickerSize(image, transform) {
+  const longer = Math.max(image.width, image.height) || 1;
+  const baseRatio = STICKER_BASE_SIZE / longer;
+  return {
+    width: image.width * baseRatio * transform.scale,
+    height: image.height * baseRatio * transform.scale,
+  };
+}
+
+function getStickerBounds(image, transform) {
+  const size = getStickerSize(image, transform);
+  const rad = (transform.rotation * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const halfW = size.width / 2;
+  const halfH = size.height / 2;
+  const bboxHalfW = Math.abs(halfW * cos) + Math.abs(halfH * sin);
+  const bboxHalfH = Math.abs(halfW * sin) + Math.abs(halfH * cos);
+  return { bboxHalfW, bboxHalfH, width: size.width, height: size.height };
+}
+
+function clampStickerTransform(transform, image) {
+  if (!transform || !image) return;
+  const bounds = getStickerBounds(image, transform);
+  transform.x = Math.max(CARD_PADDING + bounds.bboxHalfW, Math.min(1080 - CARD_PADDING - bounds.bboxHalfW, transform.x));
+  transform.y = Math.max(CARD_PADDING + bounds.bboxHalfH, Math.min(680 - CARD_PADDING - bounds.bboxHalfH, transform.y));
+}
+
+function pointInsideSticker(x, y, image, transform) {
+  const size = getStickerSize(image, transform);
+  const rad = (-transform.rotation * Math.PI) / 180;
+  const dx = x - transform.x;
+  const dy = y - transform.y;
+  const localX = dx * Math.cos(rad) - dy * Math.sin(rad);
+  const localY = dx * Math.sin(rad) + dy * Math.cos(rad);
+  return Math.abs(localX) <= size.width / 2 && Math.abs(localY) <= size.height / 2;
+}
+
+function getCanvasPoint(targetCanvas, event) {
+  const rect = targetCanvas.getBoundingClientRect();
+  const scaleX = targetCanvas.width / rect.width;
+  const scaleY = targetCanvas.height / rect.height;
+  return {
+    x: (event.clientX - rect.left) * scaleX,
+    y: (event.clientY - rect.top) * scaleY,
+  };
 }
 
 function setStampMode(mode) {
   stampMode = mode;
   const isRandom = mode === "random";
-
   stampRandomModeBtn.classList.toggle("is-active", isRandom);
   stampCustomModeBtn.classList.toggle("is-active", !isRandom);
   stampRandomPanel.hidden = !isRandom;
@@ -721,11 +1015,15 @@ function setStampMode(mode) {
   rerollStampBtn.textContent = isRandom ? "도장 다시 뽑기" : "커스텀 도장 적용";
 }
 
+function randomStamp(exclude = "") {
+  const pool = stamps.filter((stamp) => stamp !== exclude);
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
 function openImageFallback() {
   try {
     const dataUrl = canvas.toDataURL("image/png");
     const popup = window.open("", "_blank");
-
     if (!popup) {
       alert("이미지 저장이 차단되었습니다. 생성된 이미지를 길게 눌러 저장하거나 브라우저의 팝업/다운로드 허용 설정을 확인해 주세요.");
       return;
@@ -739,9 +1037,9 @@ function openImageFallback() {
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <title>만화마을 주민등록증</title>
           <style>
-            body { margin:0; padding:20px; background:#111; color:#fff; font-family:sans-serif; text-align:center; }
-            p { line-height:1.6; font-size:14px; }
-            img { display:block; width:100%; max-width:720px; height:auto; margin:18px auto 0; border-radius:12px; }
+            body { margin: 0; padding: 20px; background: #111; color: white; font-family: sans-serif; text-align: center; }
+            p { line-height: 1.6; font-size: 14px; }
+            img { display: block; width: 100%; max-width: 720px; height: auto; margin: 18px auto 0; border-radius: 12px; }
           </style>
         </head>
         <body>
@@ -750,17 +1048,11 @@ function openImageFallback() {
         </body>
       </html>
     `);
-
     popup.document.close();
   } catch (error) {
     console.error("이미지 열기 실패:", error);
     alert("이미지를 열지 못했습니다. 브라우저를 최신 버전으로 업데이트한 뒤 다시 시도해 주세요.");
   }
-}
-
-function randomStamp(exclude = "") {
-  const pool = stamps.filter((stamp) => stamp !== exclude);
-  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 function fileToDataURL(file) {
@@ -781,10 +1073,9 @@ function loadImage(src) {
   });
 }
 
-function drawImageCover(context, image, x, y, width, height) {
+function drawImageCover(targetCtx, image, x, y, width, height) {
   const imageRatio = image.width / image.height;
   const boxRatio = width / height;
-
   let sx = 0;
   let sy = 0;
   let sw = image.width;
@@ -798,39 +1089,28 @@ function drawImageCover(context, image, x, y, width, height) {
     sy = (image.height - sh) / 2;
   }
 
-  context.drawImage(image, sx, sy, sw, sh, x, y, width, height);
+  targetCtx.drawImage(image, sx, sy, sw, sh, x, y, width, height);
 }
 
-function roundRect(context, x, y, width, height, radius) {
+function roundRect(targetCtx, x, y, width, height, radius) {
   const r = Math.min(radius, width / 2, height / 2);
-
-  context.beginPath();
-  context.moveTo(x + r, y);
-  context.arcTo(x + width, y, x + width, y + height, r);
-  context.arcTo(x + width, y + height, x, y + height, r);
-  context.arcTo(x, y + height, x, y, r);
-  context.arcTo(x, y, x + width, y, r);
-  context.closePath();
+  targetCtx.beginPath();
+  targetCtx.moveTo(x + r, y);
+  targetCtx.arcTo(x + width, y, x + width, y + height, r);
+  targetCtx.arcTo(x + width, y + height, x, y + height, r);
+  targetCtx.arcTo(x, y + height, x, y, r);
+  targetCtx.arcTo(x, y, x + width, y, r);
+  targetCtx.closePath();
 }
 
-function drawWrappedText(
-  context,
-  text,
-  x,
-  y,
-  maxWidth,
-  lineHeight,
-  maxLines = 2,
-  centered = false
-) {
+function drawWrappedText(targetCtx, text, x, y, maxWidth, lineHeight, maxLines = 2) {
   const chars = [...text];
   const lines = [];
   let line = "";
 
   chars.forEach((char) => {
     const test = line + char;
-
-    if (context.measureText(test).width > maxWidth && line) {
+    if (targetCtx.measureText(test).width > maxWidth && line) {
       lines.push(line);
       line = char;
     } else {
@@ -839,47 +1119,25 @@ function drawWrappedText(
   });
 
   if (line) lines.push(line);
-
   const output = lines.slice(0, maxLines);
-
   if (lines.length > maxLines) {
-    output[maxLines - 1] = ellipsis(
-      output[maxLines - 1],
-      Math.max(2, output[maxLines - 1].length - 1)
-    );
+    output[maxLines - 1] = ellipsis(output[maxLines - 1], Math.max(2, output[maxLines - 1].length - 1));
   }
-
-  const oldAlign = context.textAlign;
-
-  if (centered) {
-    context.textAlign = "center";
-  }
-
   output.forEach((item, index) => {
-    context.fillText(
-      item,
-      x + (centered ? maxWidth / 2 : 0),
-      y + index * lineHeight
-    );
+    targetCtx.fillText(item, x, y + index * lineHeight);
   });
-
-  context.textAlign = oldAlign;
 }
 
 function ellipsis(text, maxLength) {
   if (!text) return "";
-  return text.length > maxLength
-    ? `${text.slice(0, Math.max(1, maxLength - 1))}…`
-    : text;
+  return text.length > maxLength ? `${text.slice(0, Math.max(1, maxLength - 1))}…` : text;
 }
 
 function simpleHash(text) {
   let hash = 0;
-
   for (let i = 0; i < text.length; i += 1) {
     hash = (hash << 5) - hash + text.charCodeAt(i);
     hash |= 0;
   }
-
   return Math.abs(hash);
 }
